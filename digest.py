@@ -3,9 +3,10 @@ import smtplib
 import urllib.request
 import urllib.parse
 import json
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 # ─────────────────────────────────────────────
 #  CONFIGURATION — edit these to your liking
@@ -14,7 +15,6 @@ from datetime import datetime
 NEWS_TOPICS = [
     "Chicago Bears",
     "NFL",
-    "esports",
     "artificial intelligence",
     "technology",
 ]
@@ -67,16 +67,23 @@ def fetch_news(topic: str) -> list[dict]:
 
 
 def fetch_reddit(subreddit: str) -> list[dict]:
-    """Fetch top posts from a subreddit using the public JSON API."""
-    url = f"https://www.reddit.com/r/{subreddit}/hot.json?limit={REDDIT_POST_LIMIT}"
+    """Fetch posts from the past 24 hours using the /new endpoint, sorted by score."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    cutoff_ts = cutoff.timestamp()
+
+    # Fetch up to 100 new posts so we have enough to filter from
+    url = f"https://www.reddit.com/r/{subreddit}/new.json?limit=100"
     req = urllib.request.Request(url, headers={"User-Agent": "DailyDigest/1.0"})
     with urllib.request.urlopen(req, timeout=10) as resp:
         data = json.loads(resp.read())
+
     posts = []
     for child in data.get("data", {}).get("children", []):
         p = child["data"]
         if p.get("stickied"):
             continue  # skip pinned mod posts
+        if p.get("created_utc", 0) < cutoff_ts:
+            continue  # older than 24 hours
         posts.append({
             "title": p["title"],
             "url": f"https://reddit.com{p['permalink']}",
@@ -84,6 +91,9 @@ def fetch_reddit(subreddit: str) -> list[dict]:
             "comments": p.get("num_comments", 0),
             "flair": p.get("link_flair_text") or "",
         })
+
+    # Sort by score descending so the best posts rise to the top
+    posts.sort(key=lambda x: x["score"], reverse=True)
     return posts[:REDDIT_POST_LIMIT]
 
 
@@ -122,14 +132,15 @@ def build_html(news_data: dict, reddit_data: dict) -> str:
     reddit_html = ""
     for sub, posts in reddit_data.items():
         if not posts:
-            continue
-        rows = ""
-        for p in posts:
-            flair = f'<span style="background:#f0f0f0;color:#555;font-size:11px;padding:2px 6px;border-radius:3px;margin-left:6px;">{p["flair"]}</span>' if p["flair"] else ""
-            rows += f"""
+            rows = '<tr><td style="padding:10px 0;color:#888;font-size:13px;">No posts in the last 24 hours.</td></tr>'
+        else:
+            rows = ""
+            for p in posts:
+                flair = f'<span style="background:#f0f0f0;color:#555;font-size:11px;padding:2px 6px;border-radius:3px;margin-left:6px;">{p["flair"]}</span>' if p["flair"] else ""
+                rows += f"""
             <tr>
               <td style="padding:10px 0; border-bottom:1px solid #f0f0f0;">
-                <a href="{p['url']}" style="color:#1a1a2e;font-weight:600;text-decoration:none;font-size:14px;line-height:1.4;">{p['title']}</a>{flair}
+                <a href="{p['url']}" style="color:#ff4500;font-weight:600;text-decoration:underline;font-size:14px;line-height:1.4;">{p['title']}</a>{flair}
                 <div style="margin-top:4px;font-size:12px;color:#888;">
                   ▲ {p['score']:,} &nbsp;·&nbsp; 💬 {p['comments']:,} comments
                 </div>
