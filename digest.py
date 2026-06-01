@@ -71,22 +71,40 @@ def fetch_reddit(subreddit: str) -> list[dict]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     cutoff_ts = cutoff.timestamp()
 
-    # Fetch up to 100 new posts so we have enough to filter from
     url = f"https://www.reddit.com/r/{subreddit}/new.json?limit=100"
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json",
     })
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read())
+
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        status = resp.status
+        raw = resp.read()
+
+    print(f"    HTTP {status} — {len(raw)} bytes received")
+    data = json.loads(raw)
+
+    # Detect error responses from Reddit (e.g. rate limit, quarantine, private)
+    if "error" in data:
+        raise ValueError(f"Reddit API error: {data}")
+
+    children = data.get("data", {}).get("children", [])
+    print(f"    {len(children)} posts returned by API")
+
+    if children:
+        newest_ts = children[0]["data"].get("created_utc", 0)
+        oldest_ts = children[-1]["data"].get("created_utc", 0)
+        print(f"    Newest post UTC: {datetime.fromtimestamp(newest_ts, tz=timezone.utc)}")
+        print(f"    Oldest post UTC: {datetime.fromtimestamp(oldest_ts, tz=timezone.utc)}")
+        print(f"    Cutoff UTC:      {datetime.fromtimestamp(cutoff_ts, tz=timezone.utc)}")
 
     posts = []
-    for child in data.get("data", {}).get("children", []):
+    for child in children:
         p = child["data"]
         if p.get("stickied"):
-            continue  # skip pinned mod posts
+            continue
         if p.get("created_utc", 0) < cutoff_ts:
-            continue  # older than 24 hours
+            continue
         posts.append({
             "title": p["title"],
             "url": f"https://reddit.com{p['permalink']}",
@@ -95,7 +113,7 @@ def fetch_reddit(subreddit: str) -> list[dict]:
             "flair": p.get("link_flair_text") or "",
         })
 
-    # Sort by score descending so the best posts rise to the top
+    print(f"    {len(posts)} posts within last 24h")
     posts.sort(key=lambda x: x["score"], reverse=True)
     return posts[:REDDIT_POST_LIMIT]
 
@@ -242,12 +260,12 @@ def main():
 
     print("Fetching Reddit posts...")
     reddit_data = {}
-
     for sub in SUBREDDITS:
         try:
+            print(f"  Fetching r/{sub}...")
             reddit_data[sub] = fetch_reddit(sub)
             print(f"  ✓ r/{sub}: {len(reddit_data[sub])} posts")
-            time.sleep(2)   # <-- add this
+            time.sleep(2)
         except Exception as e:
             print(f"  ✗ r/{sub}: {e}")
             reddit_data[sub] = []
