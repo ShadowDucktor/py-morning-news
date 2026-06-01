@@ -73,7 +73,10 @@ def fetch_reddit(subreddit: str) -> list[dict]:
 
     # Fetch up to 100 new posts so we have enough to filter from
     url = f"https://www.reddit.com/r/{subreddit}/new.json?limit=100"
-    req = urllib.request.Request(url, headers={"User-Agent": "DailyDigest/1.0"})
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+    })
     with urllib.request.urlopen(req, timeout=10) as resp:
         data = json.loads(resp.read())
 
@@ -239,10 +242,12 @@ def main():
 
     print("Fetching Reddit posts...")
     reddit_data = {}
+
     for sub in SUBREDDITS:
         try:
             reddit_data[sub] = fetch_reddit(sub)
             print(f"  ✓ r/{sub}: {len(reddit_data[sub])} posts")
+            time.sleep(2)   # <-- add this
         except Exception as e:
             print(f"  ✗ r/{sub}: {e}")
             reddit_data[sub] = []
