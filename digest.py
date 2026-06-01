@@ -12,14 +12,16 @@ from datetime import datetime
 # ─────────────────────────────────────────────
 
 NEWS_TOPICS = [
-    "Chicago Bears",
-    "NFL",
-    "artificial intelligence",
-    "technology",
-    # Add or remove topics freely
+    '"Supreme Court"',
+    '"Congress" AND (bill OR legislation OR vote)',
+    '"data center" AND (construction OR built OR approved OR legislation OR bill)',
+    '"US military" AND (deployment OR operations OR conflict)',
+    '"stock market" OR "S&P 500" OR "Dow Jones"',
+    '"Federal Reserve" AND (rates OR inflation)',
+    'war AND (Ukraine OR Gaza OR Taiwan) AND "United States"',
 ]
 
-NEWS_ARTICLES_PER_TOPIC = 3  # top N articles per topic
+NEWS_ARTICLES_PER_TOPIC = 5  # top N articles per topic
 
 # ─────────────────────────────────────────────
 #  SECRETS (set as GitHub Actions secrets)
