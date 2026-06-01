@@ -3,10 +3,9 @@ import smtplib
 import urllib.request
 import urllib.parse
 import json
-import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
 # ─────────────────────────────────────────────
 #  CONFIGURATION — edit these to your liking
@@ -17,28 +16,23 @@ NEWS_TOPICS = [
     "NFL",
     "artificial intelligence",
     "technology",
+    # Add or remove topics freely
 ]
 
-SUBREDDITS = [
-    "nfl",
-    "chibears",
-]
-
-REDDIT_POST_LIMIT = 5      # top N posts per subreddit
 NEWS_ARTICLES_PER_TOPIC = 3  # top N articles per topic
 
 # ─────────────────────────────────────────────
 #  SECRETS (set as GitHub Actions secrets)
 # ─────────────────────────────────────────────
 
-NEWSAPI_KEY   = os.environ["NEWSAPI_KEY"]
-GMAIL_USER    = os.environ["GMAIL_USER"]
-GMAIL_PASS    = os.environ["GMAIL_APP_PASSWORD"]
-RECIPIENT     = os.environ.get("RECIPIENT_EMAIL", GMAIL_USER)
+NEWSAPI_KEY = os.environ["NEWSAPI_KEY"]
+GMAIL_USER  = os.environ["GMAIL_USER"]
+GMAIL_PASS  = os.environ["GMAIL_APP_PASSWORD"]
+RECIPIENT   = os.environ.get("RECIPIENT_EMAIL", GMAIL_USER)
 
 
 # ─────────────────────────────────────────────
-#  FETCHERS
+#  FETCHER
 # ─────────────────────────────────────────────
 
 def fetch_news(topic: str) -> list[dict]:
@@ -66,66 +60,13 @@ def fetch_news(topic: str) -> list[dict]:
     return articles
 
 
-def fetch_reddit(subreddit: str) -> list[dict]:
-    """Fetch posts from the past 24 hours using the /new endpoint, sorted by score."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    cutoff_ts = cutoff.timestamp()
-
-    url = f"https://www.reddit.com/r/{subreddit}/new.json?limit=100"
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-    })
-
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        status = resp.status
-        raw = resp.read()
-
-    print(f"    HTTP {status} — {len(raw)} bytes received")
-    data = json.loads(raw)
-
-    # Detect error responses from Reddit (e.g. rate limit, quarantine, private)
-    if "error" in data:
-        raise ValueError(f"Reddit API error: {data}")
-
-    children = data.get("data", {}).get("children", [])
-    print(f"    {len(children)} posts returned by API")
-
-    if children:
-        newest_ts = children[0]["data"].get("created_utc", 0)
-        oldest_ts = children[-1]["data"].get("created_utc", 0)
-        print(f"    Newest post UTC: {datetime.fromtimestamp(newest_ts, tz=timezone.utc)}")
-        print(f"    Oldest post UTC: {datetime.fromtimestamp(oldest_ts, tz=timezone.utc)}")
-        print(f"    Cutoff UTC:      {datetime.fromtimestamp(cutoff_ts, tz=timezone.utc)}")
-
-    posts = []
-    for child in children:
-        p = child["data"]
-        if p.get("stickied"):
-            continue
-        if p.get("created_utc", 0) < cutoff_ts:
-            continue
-        posts.append({
-            "title": p["title"],
-            "url": f"https://reddit.com{p['permalink']}",
-            "score": p.get("score", 0),
-            "comments": p.get("num_comments", 0),
-            "flair": p.get("link_flair_text") or "",
-        })
-
-    print(f"    {len(posts)} posts within last 24h")
-    posts.sort(key=lambda x: x["score"], reverse=True)
-    return posts[:REDDIT_POST_LIMIT]
-
-
 # ─────────────────────────────────────────────
 #  EMAIL BUILDER
 # ─────────────────────────────────────────────
 
-def build_html(news_data: dict, reddit_data: dict) -> str:
+def build_html(news_data: dict) -> str:
     today = datetime.now().strftime("%A, %B %d, %Y")
 
-    # ── News sections ──
     news_html = ""
     for topic, articles in news_data.items():
         if not articles:
@@ -149,32 +90,6 @@ def build_html(news_data: dict, reddit_data: dict) -> str:
           <table width="100%" cellpadding="0" cellspacing="0">{rows}</table>
         </div>"""
 
-    # ── Reddit sections ──
-    reddit_html = ""
-    for sub, posts in reddit_data.items():
-        if not posts:
-            rows = '<tr><td style="padding:10px 0;color:#888;font-size:13px;">No posts in the last 24 hours.</td></tr>'
-        else:
-            rows = ""
-            for p in posts:
-                flair = f'<span style="background:#f0f0f0;color:#555;font-size:11px;padding:2px 6px;border-radius:3px;margin-left:6px;">{p["flair"]}</span>' if p["flair"] else ""
-                rows += f"""
-            <tr>
-              <td style="padding:10px 0; border-bottom:1px solid #f0f0f0;">
-                <a href="{p['url']}" style="color:#ff4500;font-weight:600;text-decoration:underline;font-size:14px;line-height:1.4;">{p['title']}</a>{flair}
-                <div style="margin-top:4px;font-size:12px;color:#888;">
-                  ▲ {p['score']:,} &nbsp;·&nbsp; 💬 {p['comments']:,} comments
-                </div>
-              </td>
-            </tr>"""
-        reddit_html += f"""
-        <div style="margin-bottom:28px;">
-          <h3 style="margin:0 0 12px;font-size:13px;font-weight:700;text-transform:uppercase;
-                     letter-spacing:1.5px;color:#ff4500;border-bottom:2px solid #ff4500;
-                     padding-bottom:6px;">r/{sub}</h3>
-          <table width="100%" cellpadding="0" cellspacing="0">{rows}</table>
-        </div>"""
-
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -195,20 +110,9 @@ def build_html(news_data: dict, reddit_data: dict) -> str:
 
         <!-- News -->
         <tr>
-          <td style="background:#ffffff;padding:32px 36px;">
+          <td style="background:#ffffff;padding:32px 36px;border-radius:0 0 8px 8px;">
             <h2 style="margin:0 0 24px;font-size:18px;color:#1a1a2e;font-weight:700;">📰 News</h2>
             {news_html}
-          </td>
-        </tr>
-
-        <!-- Divider -->
-        <tr><td style="background:#f4f4f8;height:8px;"></td></tr>
-
-        <!-- Reddit -->
-        <tr>
-          <td style="background:#ffffff;padding:32px 36px;border-radius:0 0 8px 8px;">
-            <h2 style="margin:0 0 24px;font-size:18px;color:#1a1a2e;font-weight:700;">🤖 Reddit</h2>
-            {reddit_html}
           </td>
         </tr>
 
@@ -258,19 +162,7 @@ def main():
             print(f"  ✗ {topic}: {e}")
             news_data[topic] = []
 
-    print("Fetching Reddit posts...")
-    reddit_data = {}
-    for sub in SUBREDDITS:
-        try:
-            print(f"  Fetching r/{sub}...")
-            reddit_data[sub] = fetch_reddit(sub)
-            print(f"  ✓ r/{sub}: {len(reddit_data[sub])} posts")
-            time.sleep(2)
-        except Exception as e:
-            print(f"  ✗ r/{sub}: {e}")
-            reddit_data[sub] = []
-
-    html = build_html(news_data, reddit_data)
+    html = build_html(news_data)
     today_str = datetime.now().strftime("%b %d")
     send_email(f"☕ Daily Digest — {today_str}", html)
 
