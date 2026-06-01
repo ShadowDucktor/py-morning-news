@@ -1,0 +1,31 @@
+name: Daily Digest
+
+on:
+  schedule:
+    - cron: "0 12 * * *"   # 7 AM CT (UTC-5) = 12:00 UTC
+                             # Adjust if needed:
+                             #   EST (UTC-5): "0 12 * * *"
+                             #   PST (UTC-8): "0 15 * * *"
+                             #   EDT (UTC-4): "0 11 * * *"
+  workflow_dispatch:         # Also lets you trigger manually from GitHub UI
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run digest script
+        env:
+          NEWSAPI_KEY:          ${{ secrets.NEWSAPI_KEY }}
+          GMAIL_USER:           ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD:   ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL:      ${{ secrets.RECIPIENT_EMAIL }}
+        run: python digest.py
