@@ -17,14 +17,11 @@ NEWS_TOPICS = [
     "esports",
     "artificial intelligence",
     "technology",
-    # Add or remove topics freely
 ]
 
 SUBREDDITS = [
     "nfl",
     "chibears",
-    "esports",
-    # Add or remove subreddits freely
 ]
 
 REDDIT_POST_LIMIT = 5      # top N posts per subreddit
